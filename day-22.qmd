@@ -1,0 +1,104 @@
+---
+title: "day-22"
+output-dir: docs
+
+format:
+  html:
+    self-contained: true
+execute: 
+  echo: true
+---
+
+```{r}
+library(dataRetrieval)
+library(dplyr)
+library(tsibble)
+library(lubridate)
+library(modeltime)
+library(timetk)
+library(tidymodels)
+library(fabletools)
+library(ggplot2)
+library(plotly)
+
+poudre_flow <- readNWISdv(siteNumber = "06752260",    
+                         parameterCd = "00060",      
+                         startDate = "2013-01-01",   
+                         endDate = "2023-12-31") |>  
+  renameNWISColumns() |>                              
+  mutate(Date = as.Date(Date)) |>                 
+  group_by(Date) |>                                   
+  summarise(Flow = mean(Flow))
+```
+
+```{r}
+poudre_ts <- poudre_flow %>%
+  as_tsibble(index = Date)
+
+my_date <- as.Date("2023-01-01")
+train_data <- poudre_ts %>% filter(Date < my_date)
+train_df <- train_data %>% as_tibble()
+
+model_prophet <- prophet_reg(seasonality_yearly = TRUE) %>%
+  set_engine("prophet")
+
+fit_prophet <- model_prophet %>% fit(Flow ~ Date, data = train_df)
+
+model_arima <- arima_reg() %>% 
+  set_engine("auto_arima")
+
+fit_arima <- model_arima %>% fit(Flow ~ Date, data = train_df)
+
+fitted_models <- modeltime_table(
+  fit_prophet,
+  fit_arima
+)
+
+fitted_models
+```
+
+```{r}
+future <- train_df %>%
+  future_frame(.date_var = Date, .length_out = "12 months")
+
+forecasts <- fitted_models %>%
+  modeltime_forecast(new_data = future, actual_data = train_df)
+
+forecasts
+```
+
+```{r}
+real_flow_2023 <- readNWISdv("06752260", "00060", "2023-01-01", "2023-12-31") %>%
+  renameNWISColumns() %>%
+  mutate(Date = as_date(Date)) %>%
+  mutate(month = floor_date(Date, "month")) %>%
+  group_by(month) %>%
+  summarise(Flow_obs = mean(Flow, na.rm = TRUE)) %>%
+  ungroup() %>%
+  rename(Date = month)
+
+real_flow_2023
+```
+# This generated mean monthly stream flows per month in 2023. The model, in comparison, generated different values in each month. Some months were similar, but some were vastly different (ex: 2023-05-01 = 16.9 vs 648.5). 
+
+```{r}
+prophet_forecast <- forecasts %>%
+  filter(.model_desc == "PROPHET") %>%
+  select(Date = .index, Flow_pred = .value)
+
+comparison <- left_join(prophet_forecast, real_flow_2023, by = "Date") %>%
+  filter(!is.na(Flow_obs))  # Only keep months with observed data
+
+model_lm <- lm(Flow_obs ~ Flow_pred, data = comparison)
+r_squared <- summary(model_lm)$r.squared
+
+ggplot(comparison, aes(x = Flow_pred, y = Flow_obs)) +
+  geom_point(color = "darkblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = paste0("Predicted vs Observed Streamflow (2023) - R² = ", round(r_squared, 3)),
+       x = "Predicted Flow (cfs)",
+       y = "Observed Flow (cfs)") +
+  theme_minimal()
+```
+
