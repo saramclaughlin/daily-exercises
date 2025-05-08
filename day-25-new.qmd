@@ -1,0 +1,70 @@
+---
+title: "day-25-new"
+format: html
+---
+```{r}
+# Load necessary libraries
+library(sf)
+library(tidyverse)
+library(AOI)
+library(ggplot2)
+library(ggspatial)
+
+rivers <- read_sf("MajorRivers.shp")
+
+mississippi_rivers <- rivers %>% 
+  filter(str_detect(NAME, "Mississippi") | 
+         str_detect(NAME, "Ohio") |  # Major tributaries
+         str_detect(NAME, "Missouri") |
+         str_detect(NAME, "Arkansas") |
+         str_detect(NAME, "Red River"))
+
+conus_counties <- aoi_get(country = "United States", level = "county") %>% 
+  filter(!STATE_NAME %in% c("Alaska", "Hawaii", "Puerto Rico"))
+
+mississippi_counties <- st_filter(conus_counties, mississippi_rivers)
+
+ggplot() +
+  geom_sf(data = mississippi_counties, fill = "orange", color = NA) +
+  geom_sf(data = mississippi_rivers, color = "blue", size = 0.5) +
+  theme_minimal() +
+  labs(title = "Counties Along the Mississippi River System")
+
+cities <- read_csv("uscities.csv")
+
+if(st_crs(cities) != st_crs(mississippi_counties)) {
+  cities <- st_transform(cities, st_crs(mississippi_counties))
+}
+
+mississippi_cities <- st_join(cities, mississippi_counties, join = st_within) %>% 
+  filter(!is.na(COUNTYFP))
+
+county_pop <- mississippi_cities %>% 
+  as.data.frame() %>%  # Convert to dataframe for faster operations
+  group_by(GEOID) %>%  # Assuming GEOID is the unique county identifier
+  summarize(urban_pop = sum(POPULATION, na.rm = TRUE))
+
+mississippi_counties <- mississippi_counties %>% 
+  left_join(county_pop, by = "GEOID")
+
+final_map <- ggplot() +
+  geom_sf(data = mississippi_counties, aes(fill = urban_pop), color = "white", size = 0.2) +
+  geom_sf(data = mississippi_rivers, color = "darkblue", size = 0.5) +
+  scale_fill_viridis_c(
+    name = "Urban Population",
+    option = "plasma",
+    trans = "log10",  # Log scale for better visualization
+    labels = scales::comma,
+    na.value = "grey90"
+  ) +
+  annotation_scale(location = "bl") +
+  annotation_north_arrow(location = "tr", which_north = "true") +
+  labs(
+    title = "Urban Population in Counties Along the Mississippi River System",
+    subtitle = "Counties intersecting the Mississippi River and its major tributaries",
+    caption = "Data sources: Natural Earth, US Census"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+

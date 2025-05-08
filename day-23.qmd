@@ -1,0 +1,19 @@
+---
+title: "day-23"
+format: html
+---
+
+```{r}
+install.packages("sf")
+install.packages("terra")
+install.packages("mapview")
+```
+```{r}
+remotes::install_github("mikejohnson51/AOI")1
+```
+```{r}
+sf::sf_extSoftVersion()
+
+terra::gdal()
+```
+

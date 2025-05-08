@@ -1,0 +1,54 @@
+---
+title: "day-24"
+format: html
+---
+
+```{r}
+library(readr)
+cities <- read_csv("uscities.csv")
+library(sf)
+colnames(cities)
+cities_sf <- st_as_sf(
+  cities, 
+  coords = c("lng", "lat"),
+  crs = 4326
+)
+
+remotes::install_github("mikejohnson51/AOI")
+library(AOI)
+larimer_boundary <- aoi_get(state = "CO", county = "Larimer")
+larimer_cities <- st_filter(cities_sf, larimer_boundary)
+
+library(ggplot2)
+ggplot() +
+  geom_sf(data = larimer_boundary, fill = "lightgray", color = "black") +
+  geom_sf(data = larimer_cities, color = "blue", size = 2) +
+  theme_minimal()
+
+library(dplyr)
+top_cities <- larimer_cities %>%
+  arrange(desc(population)) %>%
+  head(n = 3)
+print(top_cities)
+
+ggplot() +
+  geom_sf(data = larimer_boundary, fill = "lightgray", color = "black") +
+  geom_sf(data = larimer_cities, color = "blue", size = 2) +
+  geom_sf(data = top_cities, color = "red", size = 4) +
+  theme_minimal()
+
+library(ggrepel)
+ggplot() +
+  geom_sf(data = larimer_boundary, fill = "lightgray", color = "black") +
+  geom_sf(data = larimer_cities, color = "blue", size = 2) +
+  geom_sf(data = top_cities, color = "red", size = 4) + 
+  geom_label_repel(data = top_cities,
+                   aes(label = city, geometry = geometry),
+                   stat = "sf_coordinates",
+                   size = 3) +
+  labs(title = "Cities in Larimer County, Colorado") + 
+  theme_minimal()
+
+ggsave("Larimer_map.png")
+```
+

@@ -1,0 +1,128 @@
+---
+title: "day-27"
+output-dir: docs
+
+format:
+  html:
+    self-contained: true
+execute: 
+  echo: true
+---
+Define river object:
+```{r}
+library(osmdata)
+library(sf)
+library(dplyr)
+library(stringr)
+
+fc = AOI::geocode("Fort Collins", bbox = TRUE)
+
+waterways <- opq(st_bbox(st_transform(fc, 4326))) %>%
+  add_osm_feature(key = "waterway") %>%
+  osmdata_sf()
+
+water_lines <- waterways$osm_lines
+
+poudre_river <- water_lines %>%
+  filter(str_detect(name, "Cache la Poudre"))
+
+poudre_union <- st_union(poudre_river) %>% 
+  st_as_sf()
+
+river_length <- st_length(poudre_union)
+
+poudre_pts <- st_cast(poudre_union, "POINT")
+print(paste("River length (meters):", river_length))
+print(poudre_pts)
+```
+Define DEM object:
+```{r}
+library(terra)
+library(AOI)
+
+Sys.setenv("AWS_NO_SIGN_REQUEST" = "YES")
+
+bb <- AOI::geocode("Fort Collins", bbox = TRUE) |> 
+  st_transform(5070)
+
+elev <- rast("/vsis3/lynker-spatial/gridded-resources/dem.vrt") |> 
+  crop(bb)
+
+plot(elev)
+```
+
+Extract river profile:
+```{r}
+library(terra)
+library(dplyr)
+
+elevation_values <- extract(elev, poudre_pts)
+
+river_with_elevation <- bind_cols(poudre_pts, elevation_values)
+
+river_with_elevation <- river_with_elevation %>%
+  mutate(ID = seq(1, n()))
+
+print(river_with_elevation)
+```
+
+Compute sinuosity:
+```{r}
+library(sf)
+
+first_point <- poudre_pts[1, ]
+last_point <- poudre_pts[nrow(poudre_pts), ]
+
+straight_line_distance <- st_distance(first_point, last_point)
+
+sinuosity <- river_length / straight_line_distance
+
+print(paste("Sinuosity value:", sinuosity))
+```
+This sinuosity value does make sense. A value greater than one, as seen here, indicates high sinuosity which makes sense as the Poudre river has many meandering stretches. 
+
+Compute slope:
+```{r}
+elevation_values_clean <- elevation_values[!is.na(elevation_values$dem), ]
+
+first_elevation <- elevation_values_clean$dem[1]
+last_elevation <- elevation_values_clean$dem[nrow(elevation_values_clean)]
+
+elevation_change <- last_elevation - first_elevation
+
+river_length_meters <- as.numeric(river_length)
+
+slope <- elevation_change / river_length_meters
+
+slope_per_km <- slope * 100
+
+print(paste("Slope of the river:", slope_per_km, "cm/km"))
+```
+
+Ggplot:
+```{r}
+library(ggplot2)
+
+#line plot
+ggplot(elevation_values_clean, aes(x = ID, y = dem)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red") + 
+  labs(
+    title = "Elevation Profile of the Poudre River",
+    x = "Point ID Along the River",
+    y = "Elevation (cm)",
+    caption = "Source: Cache La Poudre River"
+  ) +
+  theme_minimal()
+
+#spatial plot
+ggplot() +
+  geom_sf(data = river_with_elevation, aes(color = dem), size = 1) +  
+  scale_color_viridis_c(option = "D") + 
+  labs(
+    title = "Spatial Map of the Poudre River Profile",
+    color = "Elevation (cm)"
+  ) +
+  theme_minimal()
+```
+

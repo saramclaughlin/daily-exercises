@@ -1,0 +1,66 @@
+---
+title: "day-25"
+output-dir: docs
+
+format:
+  html:
+    self-contained: true
+execute: 
+  echo: true
+---
+```{r}
+library(sf)
+library(tidyverse)
+library(AOI)
+library(ggplot2)
+library(tigris)
+library(dplyr)
+library(purrr)
+
+rivers <- read_sf("MajorRivers.shp")
+
+conus_counties <- tigris::counties(cb = TRUE, resolution = "20m") %>%
+  filter(!STATEFP %in% c("02", "15", "72"))
+
+miss_river <- rivers %>% 
+  filter(grepl("Mississippi", NAME, ignore.case = TRUE))
+
+conus_counties <- st_transform(conus_counties, st_crs(miss_river))
+
+intersecting_counties <- st_filter(conus_counties, miss_river)
+
+state_boundaries <- aoi_get(state = 'conus')
+states_projection <- st_transform(state_boundaries, st_crs(miss_river))
+
+ggplot() +
+  geom_sf(data = states_projection, fill = NA, color = "black", lty = 1, size = 0.8) + 
+  geom_sf(data = intersecting_counties, fill = "orange", color = "black") +
+  geom_sf(data = miss_river, color = "blue") +
+  theme_minimal()
+
+cities <- read_csv("uscities.csv")
+cities_sf <- st_as_sf(cities, coords = c("lng", "lat"), crs = 4326)
+
+cities_sf <- st_transform(cities_sf, st_crs(intersecting_counties))
+
+cities_in_counties <- st_join(cities_sf, intersecting_counties, join = st_within)
+
+county_pop <- cities_in_counties %>%
+  group_by(GEOID) %>%
+  mutate(urban_pop = sum(population, na.rm = TRUE))
+
+intersecting_counties_pop <- st_join(intersecting_counties, county_pop, join = st_intersects)
+
+final_map <- ggplot() +
+  geom_sf(data = states_projection, fill = NA, color = "black", lty = 1, size = 0.8) +
+  geom_sf(data = intersecting_counties_pop, aes(fill = urban_pop), color = "black") +
+  geom_sf(data = miss_river, color = "lightblue") +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey80") +
+  labs(title = "Counties Intersecting Mississippi River System",
+       fill = "Urban Population") +
+  theme_minimal()
+
+print(final_map)
+ggsave("final_map.png", plot = final_map, bg = "white")
+```
+

@@ -1,0 +1,42 @@
+---
+title: "day-26"
+output-dir: docs
+
+format:
+  html:
+    self-contained: true
+execute: 
+  echo: true
+---
+```{r}
+url <- 'https://raw.githubusercontent.com/mikejohnson51/csu-ess-330/refs/heads/main/resources/foco-elev-cm.tif'
+
+install.packages("terra")
+library(terra)
+
+r <- rast(url)
+print(r)
+```
+The loaded data is a spatial raster of elevation data (DEM) with a 30x30m resolution. The projected coordinate system for this data is a Albers Equal Area projection with a NAD83 datum. The minimum elevation in this set is 146,730 cm and the maximum is 197,781 cm. 
+```{r}
+r_feet <- r*0.0328084
+r_feet
+
+elevation_df <- values(r_feet, datafram = TRUE)
+head(elevation_df)
+
+library(ggpubr)
+density <- ggdensity(elevation_df,
+          x = "dem",
+          fill = "plum",
+          color = "purple",
+          xlab = "Elevation (feet)",
+          ylab = "Density",
+          title = "Density Plot of Elevation (feet)"
+          ) +
+  theme_minimal()
+
+ggsave("density.png", plot = density)
+```
+
+
